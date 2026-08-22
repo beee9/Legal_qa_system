@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+*.egg-info/
+dist/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Logs
+logs/
+*.log
+
+# Data files
+rag_qa/models/
+rag_qa/data/
+mysql_qa/data/
+classify_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test and documentation
+locust_test.py
+token_response_times.csv
+*.md
+*.txt
+!requirements-mac.txt
+!requirements.txt
+
+# Notebooks
+notebooks/
+
+# Demo
+demo/
+
+# Static frontend build
+static/node_modules/
+static/dist/
+
+# Environment variables
+.env
+.env.*
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.temp/

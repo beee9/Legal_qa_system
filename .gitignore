@@ -1,0 +1,43 @@
+# IDE
+.idea/
+.vscode/
+
+# Python
+*.pyc
+__pycache__/
+build/
+*.egg-info/
+
+# 虚拟环境
+.venv/
+venv/
+
+# 日志
+*.log
+logs/
+
+# 模型文件（大文件不入库）
+rag_qa/models/
+rag_qa/core/bert_query_classifier/*.safetensors
+rag_qa/core/bert_query_classifier/*.bin
+rag_qa/core/bert_query_classifier/*.onnx
+*.pt
+*.pth
+
+# 数据文件（业务数据不入库）
+*.csv
+*.xlsx
+legal_data/
+
+# 训练语料（大 jsonl 不入库，保留格式参考用 .gitkeep）
+rag_qa/classify_data/*.jsonl
+rag_qa/classify_data/*.json
+
+# 环境配置（含密钥）
+.env
+*.env
+
+# 其他
+.DS_Store
+*.ipynb
+node_modules/

@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # 主应用服务
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: itcast_app
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./docker_logs:/app/logs
+      - ./rag_qa/models:/Users/chan/projects/Itcast_qa_system/rag_qa/models
+#      - ./rag_qa/data:/app/rag_qa/data
+#      - ./mysql_qa/data:/app/mysql_qa/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - API_KEY=${API_KEY}
+    networks:
+      - itcast_network
+    restart: unless-stopped
+
+networks:
+  itcast_network:
+    external: true
