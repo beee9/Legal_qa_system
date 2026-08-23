@@ -60,8 +60,9 @@ class BM25Search:
         # 返回归一化分数, BM25分数 映射到0-1
         return exp_scores / exp_scores.sum()
 
-    def search(self, query, threshold=0.85):
-        # 搜索查询
+    def search(self, query, threshold=6.0):
+        # 搜索查询（法律场景：2632个问题的 softmax 分数会被稀释，改用原始 BM25 分数判断）
+        # 精确/概念命中原始分通常 >=12，无关查询 <=4，取 6.0 为阈值
         if not query or not isinstance(query, str):
             # 记录无效查询
             self.logger.error("无效查询")
@@ -75,16 +76,14 @@ class BM25Search:
         try:
             # 分词查询
             query_tokens = preprocess_text(query)
-            # 计算 BM25 分数
+            # 计算 BM25 原始分数
             scores = self.bm25.get_scores(query_tokens)
-            # 计算 Softmax 分数
-            softmax_scores = self._softmax(scores)
             # 获取最高分索引
-            best_idx = softmax_scores.argmax()
-            # 获取最高分
-            best_score = softmax_scores[best_idx]
+            best_idx = scores.argmax()
+            # 获取最高分（原始 BM25 分数）
+            best_score = scores[best_idx]
             logger.info(f"搜索最高分 [{best_score:.3f}] 结果: {self.original_questions[best_idx]}")
-            # 检查是否超过阈值
+            # 检查是否超过阈值（原始分数）
             if best_score >= threshold:
                 # 获取原始问题
                 original_question = self.original_questions[best_idx]
@@ -94,11 +93,11 @@ class BM25Search:
                     # 缓存答案
                     self.redis_client.set_data(f"answer:{query}", answer)
                     # 记录搜索成功
-                    self.logger.info(f"搜索成功，Softmax 相似度: {best_score:.3f}")
+                    self.logger.info(f"搜索成功，BM25 分数: {best_score:.3f}")
                     # 返回答案和 False
                     return answer, False
             # 记录无可靠答案
-            self.logger.info(f"未找到可靠答案，最高 Softmax 相似度: {best_score:.3f}")
+            self.logger.info(f"未找到可靠答案，最高 BM25 分数: {best_score:.3f}")
             # 返回 None 和 True
             return None, True
         except Exception as e:

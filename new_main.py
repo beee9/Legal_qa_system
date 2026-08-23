@@ -162,7 +162,7 @@ class IntegratedQASystem:
         history = self.get_session_history(session_id) if session_id else []
 
         # 首先尝试MySQL精确查询
-        answer, need_rag = self.bm25_search.search(query, threshold=0.85)
+        answer, need_rag = self.bm25_search.search(query, threshold=6.0)
 
         if answer:
             # MySQL找到精确答案，直接返回
@@ -204,9 +204,10 @@ class IntegratedQASystem:
 def main():
     qa_system = IntegratedQASystem()
     session_id = str(uuid.uuid4())
-    print("\n欢迎使用集成问答系统！")
+    print("\n欢迎使用法律智能问答系统！")
     print(f"会话ID: {session_id}")
-    print(f"支持的学科类别：{qa_system.config.VALID_SOURCES}")
+    print(f"支持的法律领域：{qa_system.config.VALID_SOURCES}")
+    print("本系统提供民法典、劳动法、公司法等常用法律的信息参考，不构成法律意见。")
     print("输入查询进行问答，输入 'exit' 退出。")
 
     try:

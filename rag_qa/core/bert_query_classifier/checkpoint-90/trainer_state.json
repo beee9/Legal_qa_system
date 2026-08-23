@@ -1,0 +1,64 @@
+{
+  "best_global_step": 30,
+  "best_metric": 1.0,
+  "best_model_checkpoint": "E:\\\u9648\u6770\\Legal_qa_system\\rag_qa\\core\\bert_query_classifier\\checkpoint-30",
+  "epoch": 3.0,
+  "eval_steps": 500,
+  "global_step": 90,
+  "is_hyper_param_search": false,
+  "is_local_process_zero": true,
+  "is_world_process_zero": true,
+  "log_history": [
+    {
+      "epoch": 1.0,
+      "eval_accuracy": 1.0,
+      "eval_f1": 1.0,
+      "eval_loss": 0.05595455318689346,
+      "eval_runtime": 0.4709,
+      "eval_samples_per_second": 125.289,
+      "eval_steps_per_second": 8.494,
+      "step": 30
+    },
+    {
+      "epoch": 2.0,
+      "eval_accuracy": 1.0,
+      "eval_f1": 1.0,
+      "eval_loss": 0.011544939130544662,
+      "eval_runtime": 0.5423,
+      "eval_samples_per_second": 108.799,
+      "eval_steps_per_second": 7.376,
+      "step": 60
+    },
+    {
+      "epoch": 3.0,
+      "eval_accuracy": 1.0,
+      "eval_f1": 1.0,
+      "eval_loss": 0.007409421261399984,
+      "eval_runtime": 0.4843,
+      "eval_samples_per_second": 121.837,
+      "eval_steps_per_second": 8.26,
+      "step": 90
+    }
+  ],
+  "logging_steps": 500,
+  "max_steps": 90,
+  "num_input_tokens_seen": 0,
+  "num_train_epochs": 3,
+  "save_steps": 500,
+  "stateful_callbacks": {
+    "TrainerControl": {
+      "args": {
+        "should_epoch_stop": false,
+        "should_evaluate": false,
+        "should_log": false,
+        "should_save": true,
+        "should_training_stop": true
+      },
+      "attributes": {}
+    }
+  },
+  "total_flos": 93536820002304.0,
+  "train_batch_size": 16,
+  "trial_name": null,
+  "trial_params": null
+}

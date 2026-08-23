@@ -142,7 +142,7 @@ async def query(request: QueryRequest):
         }
 
     # 判断是否需要流式处理（基于 need_rag）
-    answer, need_rag = qa_system.bm25_search.search(request.query, threshold=0.85)
+    answer, need_rag = qa_system.bm25_search.search(request.query, threshold=6.0)
     if need_rag:
         # 需要 RAG 和 LLM 处理，返回流式响应提示
         return {

@@ -5,8 +5,28 @@ import os
 
 
 class Config:
+    # 基于当前文件位置推导项目根目录（base/ -> 项目根）
+    _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    @staticmethod
+    def _load_dotenv():
+        """加载项目根目录 .env 文件到环境变量（密钥不存 config.ini，存 .env 且已 gitignore）"""
+        env_path = os.path.join(Config._PROJECT_ROOT, ".env")
+        if os.path.exists(env_path):
+            with open(env_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        os.environ.setdefault(k.strip(), v.strip())
+
     # 初始化配置，加载 config.ini 文件
-    def __init__(self, config_file=r"E:\陈杰\Itcast_qa_system\config.ini"):
+    def __init__(self, config_file=None):
+        # 先加载 .env（密钥从环境变量读取）
+        self._load_dotenv()
+        # 默认加载本项目根目录下的 config.ini
+        if config_file is None:
+            config_file = os.path.join(self._PROJECT_ROOT, "config.ini")
         # 创建配置解析器
         self.config = configparser.ConfigParser()
         # 读取配置文件
@@ -47,11 +67,11 @@ class Config:
         # LLM 配置
         # LLM 模型名
         self.LLM_MODEL = self.config.get('llm', 'model', fallback='qwen-plus')
-        # DashScope API 密钥
+        # DashScope API 密钥（优先 .env 环境变量）
         self.DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY") or self.config.get('llm', 'dashscope_api_key', fallback=None)
-        # DashScope API 地址
-        self.DASHSCOPE_BASE_URL = self.config.get('llm', 'dashscope_base_url',
-                                                  fallback='https://dashscope.aliyuncs.com/compatible-mode/v1')
+        # DashScope API 地址（优先 .env 环境变量）
+        self.DASHSCOPE_BASE_URL = os.getenv("DASHSCOPE_BASE_URL") or self.config.get(
+            'llm', 'dashscope_base_url', fallback='https://dashscope.aliyuncs.com/compatible-mode/v1')
 
         # 检索参数
         # 父块大小
@@ -74,11 +94,12 @@ class Config:
         # 日志文件路径
         self.LOG_FILE = self.config.get('logger', 'log_file', fallback='logs/app.log')
 
-        # model path
-        # self.bge_m3 = "/Users/chan/projects/Itcast_qa_system/rag_qa/models/bge-m3"
-        # self.bge_reranker = "/Users/chan/projects/Itcast_qa_system/rag_qa/models/bge-reranker-large"
-        self.nlp_bert_doc_seg = R"E:\陈杰\Itcast_qa_system\rag_qa\models\nlp_bert_document-segmentation_chinese-base"
-        self.bert_intent_cls = R"E:\陈杰\Itcast_qa_system\rag_qa\core\bert_query_classifier"
+        # model path（相对项目根拼装，避免硬编码绝对路径）
+        self.bge_m3 = os.path.join(self._PROJECT_ROOT, "rag_qa", "models", "bge-m3")
+        self.bge_reranker = os.path.join(self._PROJECT_ROOT, "rag_qa", "models", "bge-reranker-v2-m3")
+        self.nlp_bert_doc_seg = os.path.join(self._PROJECT_ROOT, "rag_qa", "models",
+                                             "nlp_bert_document-segmentation_chinese-base")
+        self.bert_intent_cls = os.path.join(self._PROJECT_ROOT, "rag_qa", "core", "bert_query_classifier", "best_model")
 
 
 if __name__ == '__main__':

@@ -11,6 +11,7 @@ build/
 # 虚拟环境
 .venv/
 venv/
+.venv-RAGtrain/
 
 # 日志
 *.log
@@ -18,9 +19,11 @@ logs/
 
 # 模型文件（大文件不入库）
 rag_qa/models/
-rag_qa/core/bert_query_classifier/*.safetensors
-rag_qa/core/bert_query_classifier/*.bin
-rag_qa/core/bert_query_classifier/*.onnx
+rag_qa/core/bert_query_classifier/**/*.safetensors
+rag_qa/core/bert_query_classifier/**/*.bin
+rag_qa/core/bert_query_classifier/**/*.onnx
+rag_qa/core/bert_query_classifier/**/*.pt
+rag_qa/core/bert_query_classifier/**/*.pth
 *.pt
 *.pth
 

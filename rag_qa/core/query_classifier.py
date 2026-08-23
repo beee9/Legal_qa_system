@@ -33,23 +33,24 @@ class QueryClassifier:
         # self.device = 'mps'
         # 记录设备信息
         logger.info(f"使用设备: {self.device}")
-        # 定义标签映射
-        self.label_map = {"通用知识": 0, "专业咨询": 1}
+        # 定义标签映射（法律三分类）
+        self.label_map = {"法条查询": 0, "法律咨询": 1, "通用问题": 2}
+        self.id2label = {0: "法条查询", 1: "法律咨询", 2: "通用问题"}
         # 加载模型
         self.load_model()
 
     def load_model(self):
         # 检查模型路径是否存在
         if os.path.exists(self.model_path):
-            # 加载预训练模型
-            self.model = BertForSequenceClassification.from_pretrained(self.model_path, num_labels=2)
+            # 加载预训练模型（num_labels=3 法律三分类）
+            self.model = BertForSequenceClassification.from_pretrained(self.model_path, num_labels=3)
             # 将模型移到指定设备
             self.model.to(self.device)
             # 记录加载成功的日志
             logger.info(f"加载模型: {self.model_path}")
         else:
             # 初始化新模型
-            self.model = BertForSequenceClassification.from_pretrained("bert-base-chinese", num_labels=2)
+            self.model = BertForSequenceClassification.from_pretrained("bert-base-chinese", num_labels=3)
             # 将模型移到指定设备
             self.model.to(self.device)
             # 记录初始化模型的日志
@@ -192,8 +193,8 @@ class QueryClassifier:
         if self.model is None:
             # 模型未加载，记录错误
             logger.error("模型未训练或加载")
-            # 默认返回通用知识
-            return "通用知识"
+            # 默认返回通用问题
+            return "通用问题"
         # 对查询进行编码
         encoding = self.tokenizer(query, truncation=True, padding=True, max_length=128, return_tensors="pt")
         # 将编码移到指定设备
@@ -205,8 +206,8 @@ class QueryClassifier:
             outputs = self.model(**encoding)  # 关键词参数
             # 获取预测结果
             prediction = torch.argmax(outputs.logits, dim=1).item()
-        # 根据预测结果返回类别
-        return "专业咨询" if prediction == 1 else "通用知识"
+        # 根据预测结果返回三分类类别
+        return self.id2label.get(prediction, "通用问题")
 
 
 if __name__ == "__main__":
