@@ -1,8 +1,8 @@
 # Python 基础镜像
 FROM --platform=amd64 python:3.12-slim-bullseye
 
-# 设置工作目录
-WORKDIR /Users/chan/projects/Itcast_qa_system
+# 设置工作目录（中性路径，不再依赖旧的 Mac/Itcast 绝对路径）
+WORKDIR /app
 
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1 \
@@ -40,11 +40,10 @@ RUN pip install  -r  requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simpl
 # 创建日志目录
 RUN mkdir -p logs
 
-# 修改配置文件中的服务地址为 Docker 服务名
+# 修改配置文件中的服务地址为 Docker 服务名（log_file 已是相对路径，无需处理）
 RUN sed -i '/\[mysql\]/,/host =/ s/host = localhost/host = mysql/' config.ini && \
     sed -i '/\[redis\]/,/host =/ s/host = localhost/host = redis/' config.ini && \
-    sed -i '/\[milvus\]/,/host =/ s/host = localhost/host = milvus/' config.ini && \
-    sed -i 's|log_file = /Users/chan/projects/Itcast_qa_system/logs/app.log|log_file = /app/logs/app.log|g' config.ini
+    sed -i '/\[milvus\]/,/host =/ s/host = localhost/host = milvus/' config.ini
 
 # 复制入口脚本
 COPY entrypoint.sh /entrypoint.sh

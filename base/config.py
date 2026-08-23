@@ -2,6 +2,8 @@
 import configparser
 # 导入路径操作库
 import os
+# 导入安全字面量解析（替代 eval，避免执行配置文件中的任意表达式）
+import ast
 
 
 class Config:
@@ -39,8 +41,8 @@ class Config:
 
         # MySQL 用户名
         self.MYSQL_USER = self.config.get('mysql', 'user', fallback='root')
-        # MySQL 密码
-        self.MYSQL_PASSWORD = self.config.get('mysql', 'password', fallback='123456')
+        # MySQL 密码（优先环境变量，避免明文入库；无则回退 config.ini）
+        self.MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD") or self.config.get('mysql', 'password', fallback='')
         # MySQL 数据库名
         self.MYSQL_DATABASE = self.config.get('mysql', 'database', fallback='subjects_kg')
 
@@ -49,8 +51,8 @@ class Config:
         self.REDIS_HOST = self.config.get('redis', 'host', fallback='localhost')
         # Redis 端口
         self.REDIS_PORT = self.config.getint('redis', 'port', fallback=6379)
-        # Redis 密码
-        self.REDIS_PASSWORD = self.config.get('redis', 'password', fallback='1234')
+        # Redis 密码（优先环境变量，避免明文入库）
+        self.REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or self.config.get('redis', 'password', fallback='')
         # Redis 数据库编号
         self.REDIS_DB = self.config.getint('redis', 'db', fallback=0)
 
@@ -86,8 +88,8 @@ class Config:
         self.CANDIDATE_M = self.config.getint('retrieval', 'candidate_m', fallback=2)
 
         # 应用配置
-        # 有效来源列表
-        self.VALID_SOURCES = eval(
+        # 有效来源列表（用 ast.literal_eval 安全解析字面量，禁用任意表达式执行）
+        self.VALID_SOURCES = ast.literal_eval(
             self.config.get('app', 'valid_sources', fallback='["ai", "java", "test", "ops", "bigdata"]'))
         # 客服电话
         self.CUSTOMER_SERVICE_PHONE = self.config.get('app', 'customer_service_phone', fallback='12345678')
@@ -95,11 +97,12 @@ class Config:
         self.LOG_FILE = self.config.get('logger', 'log_file', fallback='logs/app.log')
 
         # model path（相对项目根拼装，避免硬编码绝对路径）
-        # 本地模型根目录：优先读 config.ini 的 [model].models_dir，
-        # 缺省指向本项目 rag_qa/models；本项目该目录为空时，请在 config.ini 里指向真实模型位置。
-        self.models_dir = self.config.get(
-            'model', 'models_dir',
-            fallback=os.path.join(self._PROJECT_ROOT, "rag_qa", "models"))
+        # 本地模型根目录：优先读 config.ini 的 [model].models_dir；
+        # 若该路径不存在（例如 config.ini 硬编码了本机 Windows 绝对路径，
+        # 而在 Docker/Linux 或其他机器上运行），则回退到项目内 rag_qa/models。
+        _configured_models = self.config.get('model', 'models_dir', fallback="")
+        _portable_models = os.path.join(self._PROJECT_ROOT, "rag_qa", "models")
+        self.models_dir = _configured_models if os.path.isdir(_configured_models) else _portable_models
         self.bge_m3 = os.path.join(self.models_dir, "bge-m3")
         self.bge_reranker = os.path.join(self.models_dir, "bge-reranker-v2-m3")
         self.nlp_bert_doc_seg = os.path.join(self.models_dir,

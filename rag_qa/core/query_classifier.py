@@ -183,7 +183,7 @@ class QueryClassifier:
         print(classification_report(
             true_labels,
             pred_labels,
-            target_names=["通用知识", "专业咨询"]
+            target_names=["法条查询", "法律咨询", "通用问题"]
         ))
         logger.info("混淆矩阵:")
         logger.info(confusion_matrix(true_labels, pred_labels))

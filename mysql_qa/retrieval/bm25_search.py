@@ -129,8 +129,8 @@ class BM25Search:
                 # 获取答案
                 answer = self.mysql_client.fetch_answer(original_question)
                 if answer:
-                    # 缓存答案
-                    self.redis_client.set_data(f"answer:{query}", answer)
+                    # 缓存答案（24 小时 TTL，防止 Redis 无界增长）
+                    self.redis_client.set_data(f"answer:{query}", answer, ttl=86400)
                     # 记录搜索成功
                     self.logger.info(f"搜索成功，BM25 分数: {best_score:.3f}")
                     # 返回答案和 False

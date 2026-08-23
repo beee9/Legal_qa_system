@@ -230,8 +230,10 @@ class RAGSystem:
 
         # 准备上下文
         try:
-            if query_category == "通用知识":
-                logger.info("查询为通用知识，直接调用 LLM")
+            # 注意：分类器（query_classifier）返回的三分类标签是
+            # 法条查询 / 法律咨询 / 通用问题；"通用问题"即通用知识，直连 LLM。
+            if query_category == "通用问题":
+                logger.info("查询为通用问题，直接调用 LLM（不检索）")
                 context = ""
             else:
                 logger.info("查询为专业咨询，执行 RAG 流程")
@@ -251,11 +253,22 @@ class RAGSystem:
                 phone=conf.CUSTOMER_SERVICE_PHONE
             )
 
-            # 截断提示（若超长）
+            # 截断提示（若超长）：只截断上下文，保证用户问题与历史不被切断
             if len(prompt_input) > self.max_prompt_length:
-                logger.warning(f"提示长度 {len(prompt_input)} 超过 {self.max_prompt_length}，进行截断")
-                # 保留问题和近期历史，截断上下文或早期历史
-                prompt_input = prompt_input[:self.max_prompt_length]
+                logger.warning(f"提示长度 {len(prompt_input)} 超过 {self.max_prompt_length}，截断上下文")
+                # 计算需裁掉的字数，从上下文末尾裁减（保留排在前面的高相关文档）
+                overage = len(prompt_input) - self.max_prompt_length
+                keep = max(0, len(context) - overage)
+                context = context[:keep]
+                prompt_input = self.rag_prompt.format(
+                    context=context,
+                    history=history_context,
+                    question=query,
+                    phone=conf.CUSTOMER_SERVICE_PHONE,
+                )
+                # 兜底：上下文已裁尽仍超长（历史/问题过长）时，再硬截断
+                if len(prompt_input) > self.max_prompt_length:
+                    prompt_input = prompt_input[:self.max_prompt_length]
                 logger.info(f"截断后提示长度: {len(prompt_input)}")
 
             processing_time = time.time() - start_time

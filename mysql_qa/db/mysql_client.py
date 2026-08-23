@@ -3,17 +3,16 @@ import pymysql
 # 导入pandas
 import pandas as pd
 import sys, os
+# 线程本地存储：每个线程持有独立连接，避免共享游标在并发下互相串扰
+import threading
 
 # 获取当前文件所在目录的绝对路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
-print(f'current_dir--》{current_dir}')
 # 获取core文件所在的目录的绝对路径
 rag_qa_path = os.path.dirname(current_dir)
-print(f'rag_qa_path--》{rag_qa_path}')
 sys.path.insert(0, rag_qa_path)
 # 获取根目录文件所在的绝对位置
 project_root = os.path.dirname(rag_qa_path)
-print(f'project_root--》{project_root}')
 sys.path.insert(0, project_root)
 
 # 导入配置和日志
@@ -21,26 +20,51 @@ from base import Config, logger
 
 
 class MySQLClient:
+    """线程安全的 MySQL 客户端：按线程惰性建立独立连接。
+
+    pymysql 的连接与游标不是线程安全的；FastAPI 的线程池 / WebSocket
+    后台线程会并发调用本客户端。这里用 threading.local 让每个线程拥有
+    自己独立的 connection + cursor，`close()` 统一回收所有线程的连接。
+    """
+
     def __init__(self):
         # 初始化日志
         self.logger = logger
-        try:
-            # 连接 MySQL 数据库
-            self.connection = pymysql.connect(
-                host=Config().MYSQL_HOST,
-                user=Config().MYSQL_USER,
-                password=Config().MYSQL_PASSWORD,
-                database=Config().MYSQL_DATABASE,
+        # 线程本地连接
+        self._local = threading.local()
+        # 记录所有已建立的连接，供 close() 统一关闭
+        self._connections = set()
+        self._lock = threading.Lock()
+
+    def _get_connection(self):
+        """获取当前线程的连接，未建立或已断开则新建。"""
+        conn = getattr(self._local, "connection", None)
+        if conn is None or not conn.open:
+            cfg = Config()
+            conn = pymysql.connect(
+                host=cfg.MYSQL_HOST,
+                user=cfg.MYSQL_USER,
+                password=cfg.MYSQL_PASSWORD,
+                database=cfg.MYSQL_DATABASE,
                 # port=3307
             )
-            # 创建游标
-            self.cursor = self.connection.cursor()
-            # 记录连接成功
-            self.logger.info("MySQL 连接成功")
-        except pymysql.MySQLError as e:
-            # 记录连接失败
-            self.logger.error(f"MySQL 连接失败: {e}")
-            raise
+            self._local.connection = conn
+            self._local.cursor = conn.cursor()
+            with self._lock:
+                self._connections.add(conn)
+            self.logger.info("MySQL 连接成功（新线程）")
+        return conn
+
+    @property
+    def connection(self):
+        """当前线程的连接（惰性建立）。"""
+        return self._get_connection()
+
+    @property
+    def cursor(self):
+        """当前线程的游标（惰性建立）。"""
+        self._get_connection()
+        return self._local.cursor
 
     def create_table(self):
         create_table_query = '''
@@ -121,16 +145,21 @@ class MySQLClient:
             return None
 
     def close(self):
-        # 关闭数据库连接
-        try:
-            # 关闭连接
-            self.connection.close()
-            self.cursor.close()
-            # 记录关闭成功
-            self.logger.info("MySQL 连接已关闭")
-        except pymysql.MySQLError as e:
-            # 记录关闭失败
-            self.logger.error(f"关闭连接失败: {e}")
+        # 关闭所有线程建立的连接
+        with self._lock:
+            conns = list(self._connections)
+            self._connections.clear()
+        for conn in conns:
+            try:
+                if conn.open:
+                    conn.close()
+            except pymysql.MySQLError as e:
+                # 记录关闭失败
+                self.logger.error(f"关闭连接失败: {e}")
+        # 清空当前线程的本地引用
+        self._local.connection = None
+        self._local.cursor = None
+        self.logger.info("MySQL 所有连接已关闭")
 
 
 if __name__ == '__main__':

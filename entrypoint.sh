@@ -5,9 +5,14 @@ echo "========================================="
 echo "等待依赖服务就绪..."
 echo "========================================="
 
+# 数据库名与密码从环境变量读取（默认与 config.ini / .env 一致）
+MYSQL_PASSWORD="${MYSQL_PASSWORD:-12345678}"
+MYSQL_DATABASE="${MYSQL_DATABASE:-legal_qa}"
+REDIS_PASSWORD="${REDIS_PASSWORD:-1234}"
+
 # 等待 MySQL 就绪
 echo "等待 MySQL 启动..."
-until python -c "import pymysql; pymysql.connect(host='mysql', port=3306, user='root', password='12345678', database='subjects_kg')" 2>/dev/null; do
+until python -c "import pymysql; pymysql.connect(host='mysql', port=3306, user='root', password='$MYSQL_PASSWORD', database='$MYSQL_DATABASE')" 2>/dev/null; do
   echo "MySQL 未就绪，等待中..."
   sleep 3
 done
@@ -15,7 +20,7 @@ echo "✓ MySQL 已就绪"
 
 # 等待 Redis 就绪
 echo "等待 Redis 启动..."
-until python -c "import redis; r = redis.Redis(host='redis', port=6379); r.ping()" 2>/dev/null; do
+until python -c "import redis; r = redis.Redis(host='redis', port=6379, password='$REDIS_PASSWORD'); r.ping()" 2>/dev/null; do
   echo "Redis 未就绪，等待中..."
   sleep 2
 done

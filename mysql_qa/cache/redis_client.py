@@ -26,11 +26,11 @@ class RedisClient:
             self.logger.error(f"Redis 连接失败: {e}")
             raise
 
-    def set_data(self, key, value):
-        # 存储数据到 Redis
+    def set_data(self, key, value, ttl=None):
+        # 存储数据到 Redis（支持可选 TTL 秒数，防止无界增长）
         try:
             # 存储 JSON 数据
-            self.client.set(key, json.dumps(value, ensure_ascii=False))  # 使用 json.dumps() 将数据转换为 JSON 格式
+            self.client.set(key, json.dumps(value, ensure_ascii=False), ex=ttl)  # 使用 json.dumps() 将数据转换为 JSON 格式
             # 记录存储成功
             self.logger.info(f"存储数据到 Redis: {key}")
         except redis.RedisError as e:
@@ -53,16 +53,16 @@ class RedisClient:
     def get_answer(self, query):
         # 获取查询的缓存答案
         try:
-            # 从 Redis 获取答案
+            # 从 Redis 获取答案（存储时经 json.dumps，读取时需还原为字符串）
             answer = self.client.get(f"answer:{query}")
             if answer:
                 # 记录获取成功
                 self.logger.info(f"从 Redis 获取答案: {query}")
-                # 返回答案
-                return answer
+                # 返回答案（还原 JSON 字符串，去掉外层的引号）
+                return json.loads(answer)
             # 返回 None
             return None
-        except redis.RedisError as e:
+        except (redis.RedisError, json.JSONDecodeError) as e:
             # 记录查询失败
             self.logger.error(f"Redis 查询失败: {e}")
             # 返回 None

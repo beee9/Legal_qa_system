@@ -6,17 +6,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: itcast_app
+    container_name: legal_qa_app
     ports:
       - "8003:8003"
     volumes:
       - ./docker_logs:/app/logs
-      - ./rag_qa/models:/Users/chan/projects/Itcast_qa_system/rag_qa/models
+      - ./rag_qa/models:/app/rag_qa/models
 #      - ./rag_qa/data:/app/rag_qa/data
 #      - ./mysql_qa/data:/app/mysql_qa/data
     environment:
       - PYTHONUNBUFFERED=1
-      - API_KEY=${API_KEY}
+      # 密钥与数据库密码从宿主环境透传（代码读取的是 DASHSCOPE_API_KEY / MYSQL_PASSWORD / REDIS_PASSWORD）
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - DASHSCOPE_BASE_URL=${DASHSCOPE_BASE_URL}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-12345678}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-1234}
     networks:
       - itcast_network
     restart: unless-stopped

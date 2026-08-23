@@ -7,6 +7,8 @@ __pycache__/
 env/
 venv/
 ENV/
+.venv-RAGtrain/
+.pytest_cache/
 build/
 develop-eggs/
 *.egg-info/

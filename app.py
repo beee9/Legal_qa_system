@@ -8,6 +8,7 @@ from pydantic import BaseModel
 import asyncio
 import json
 import uuid
+import threading
 from typing import Optional, List, Dict, Any
 import time
 import re
@@ -18,10 +19,20 @@ from new_main import IntegratedQASystem
 # 创建应用实例
 app = FastAPI(title="问答系统API", description="集成MySQL和RAG的智能问答系统")
 
-# 配置CORS，允许前端访问
+# 配置CORS，允许前端访问（限制来源，不用通配符+凭据的组合）
+# 默认允许本机同源（静态页面）与 vite 开发服务器；生产可用 ALLOWED_ORIGINS 覆盖
+_DEFAULT_ORIGINS = [
+    "http://localhost:8003",
+    "http://127.0.0.1:8003",
+    "http://localhost:5173",   # vite dev server
+    "http://127.0.0.1:5173",
+]
+_ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",")
+_ALLOWED_ORIGINS = [o.strip() for o in _ALLOWED_ORIGINS if o.strip()] or _DEFAULT_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 在生产环境中应该限制为特定域名
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -75,20 +86,20 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # 根路径重定向到index.html
 @app.get("/")
-async def read_root():
+def read_root():
     return FileResponse("static/index.html")
 
 
 # 创建新会话
 @app.post("/api/create_session")
-async def create_session():
+def create_session():
     session_id = str(uuid.uuid4())
     return {"session_id": session_id}
 
 
 # 查询历史消息
 @app.get("/api/history/{session_id}")
-async def get_history(session_id: str):
+def get_history(session_id: str):
     try:
         history = qa_system.get_session_history(session_id)
         return {"session_id": session_id, "history": history}
@@ -98,7 +109,7 @@ async def get_history(session_id: str):
 
 # 清除历史消息
 @app.delete("/api/history/{session_id}")
-async def clear_history(session_id: str):
+def clear_history(session_id: str):
     success = qa_system.clear_session_history(session_id)
     if success:
         return {"status": "success", "message": "历史记录已清除"}
@@ -116,9 +127,9 @@ def check_greeting(query: str) -> Optional[str]:
 
 
 # 入参 出参
-# 非流式查询接口
+# 非流式查询接口（同步 def，FastAPI 放入线程池执行，避免阻塞事件循环）
 @app.post("/api/query")
-async def query(request: QueryRequest):
+def query(request: QueryRequest):
     start_time = time.time()
     session_id = request.session_id or str(uuid.uuid4())
 
@@ -153,9 +164,38 @@ async def query(request: QueryRequest):
 
 
 # 流式查询WebSocket接口
+def _pump_query(gen, queue, loop):
+    """在后台线程运行阻塞生成器，把 (token, is_complete) 推进 asyncio 队列。
+
+    BERT 意图分类 / BM25 / Milvus 检索 / rerank / LLM 流式全是同步阻塞调用，
+    若直接在事件循环里迭代会卡死所有并发连接。这里放到后台线程 + 队列回传。
+    """
+    def push(item):
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, item)
+        except RuntimeError:
+            # 事件循环已关闭（客户端断开），停止生产
+            try:
+                gen.close()
+            except Exception:
+                pass
+
+    try:
+        for token, is_complete in gen:
+            push(("token", token, is_complete, None))
+    except Exception as e:
+        push(("error", None, False, str(e)))
+    finally:
+        push(("end", None, True, None))
+
+
 @app.websocket("/api/stream")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    loop = asyncio.get_running_loop()
+
+    def connected():
+        return websocket.client_state == websocket.client_state.CONNECTED
 
     try:
         while True:
@@ -169,17 +209,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
             start_time = time.time()
 
-            # 发送开始标志
-            if websocket.client_state == websocket.client_state.CONNECTED:  # 确保客户端已连接
-                await websocket.send_json({
-                    "type": "start",
-                    "session_id": session_id
-                })
-
             # 检查是否为日常问候
             greeting_response = check_greeting(query)
             if greeting_response:
-                if websocket.client_state == websocket.client_state.CONNECTED:
+                if connected():
                     await websocket.send_json({
                         "type": "token",
                         "token": greeting_response,
@@ -191,15 +224,36 @@ async def websocket_endpoint(websocket: WebSocket):
                         "is_complete": True,
                         "processing_time": time.time() - start_time
                     })
-                break
+                continue
 
-            # 调用QA系统进行查询，流式返回结果
-            collected_answer = ""
-            for token, is_complete in qa_system.query(query, source_filter=source_filter, session_id=session_id):
-                collected_answer += token
+            # 发送开始标志
+            if connected():
+                await websocket.send_json({
+                    "type": "start",
+                    "session_id": session_id
+                })
 
-                if is_complete and not collected_answer:
-                    if websocket.client_state == websocket.client_state.CONNECTED:
+            # 前端仅在 /api/query 判定需要 RAG 后才打开本连接，
+            # 因此这里直接走 RAG（force_rag=True），不再重复跑 BM25。
+            queue = asyncio.Queue()
+            gen = qa_system.query(
+                query, source_filter=source_filter,
+                session_id=session_id, force_rag=True,
+            )
+            threading.Thread(target=_pump_query, args=(gen, queue, loop), daemon=True).start()
+
+            while True:
+                kind, token, is_complete, error = await queue.get()
+                if kind == "error":
+                    if connected():
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": error,
+                            "session_id": session_id
+                        })
+                    break
+                if kind == "end":
+                    if connected():
                         await websocket.send_json({
                             "type": "end",
                             "session_id": session_id,
@@ -207,38 +261,25 @@ async def websocket_endpoint(websocket: WebSocket):
                             "processing_time": time.time() - start_time
                         })
                     break
-
-                if token and websocket.client_state == websocket.client_state.CONNECTED:
+                if token and connected():
                     await websocket.send_json({
                         "type": "token",
                         "token": token,
                         "session_id": session_id
                     })
 
-                if is_complete:
-                    if websocket.client_state == websocket.client_state.CONNECTED:
-                        await websocket.send_json({
-                            "type": "end",
-                            "session_id": session_id,
-                            "is_complete": True,
-                            "processing_time": time.time() - start_time
-                        })
-                    break
-
-                await asyncio.sleep(0.01)
-
     except WebSocketDisconnect as e:
         print(f"WebSocket disconnected: code={e.code}, reason={e.reason}")
     except Exception as e:
         print(f"WebSocket error: {str(e)}")
-        if websocket.client_state == websocket.client_state.CONNECTED:
+        if connected():
             await websocket.send_json({
                 "type": "error",
                 "error": str(e)
             })
     finally:
         try:
-            if websocket.client_state == websocket.client_state.CONNECTED:
+            if connected():
                 await websocket.close()
         except Exception as e:
             print(f"Error closing WebSocket: {str(e)}")
@@ -246,13 +287,13 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # 健康检查端点 用户运维监控服务存活状态
 @app.get("/health")
-async def health_check():
+def health_check():
     return {"status": "healthy"}
 
 
 # 获取有效的学科类别
 @app.get("/api/sources")
-async def get_sources():
+def get_sources():
     return {"sources": qa_system.config.VALID_SOURCES}
 
 

@@ -24,7 +24,8 @@ class StrategySelector:
                     {"role": "system", "content": "你是一个有用的助手。"},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1
+                temperature=0.1,
+                timeout=30  # 避免策略选择 LLM 调用无限期挂起
             )
             # 返回完成结果
             return completion.choices[0].message.content if completion.choices else "直接检索"

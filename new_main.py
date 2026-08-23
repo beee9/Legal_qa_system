@@ -61,7 +61,7 @@ class IntegratedQASystem:
 
     # 调用模型
     def call_dashscope(self, prompt):
-        """调用DashScope API生成答案（流式输出）"""
+        """调用DashScope API生成答案（流式输出，生成器）"""
         try:
             completion = self.client.chat.completions.create(
                 model=self.config.LLM_MODEL,
@@ -73,19 +73,14 @@ class IntegratedQASystem:
                 stream=True  # 启用流式输出
             )
 
-            # 收集流式输出的结果
-            collected_content = ""
+            # 逐个 yield 每个 chunk
             for chunk in completion:
                 if chunk.choices and chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
-                    collected_content += content
-                    # 这里可以通过回调函数向前端发送每个chunk
                     yield content
-
-            return collected_content
         except Exception as e:
             self.logger.error(f"LLM调用失败: {e}")
-            return f"错误：LLM调用失败 - {e}"
+            yield f"错误：LLM调用失败 - {e}"
 
     def _fetch_recent_history(self, session_id: str) -> list:
         """获取最近5轮对话历史"""
@@ -155,16 +150,23 @@ class IntegratedQASystem:
             return False
 
     # 修改 main.py 中的 query 方法
-    def query(self, query, source_filter=None, session_id=None):
-        """查询集成系统，支持对话历史和流式输出"""
+    def query(self, query, source_filter=None, session_id=None, force_rag=False):
+        """查询集成系统，支持对话历史和流式输出。
+
+        force_rag: 调用方已知该查询需要走 RAG（例如 WebSocket 流式请求前
+        已在 /api/query 中做过 BM25 判断），跳过重复的 BM25 精确检索。
+        """
         start_time = time.time()
         self.logger.info(f"处理查询: '{query}' (会话ID: {session_id})")
         history = self.get_session_history(session_id) if session_id else []
 
-        # 首先尝试MySQL精确查询
-        answer, need_rag = self.bm25_search.search(query, threshold=6.0)
+        # 默认先尝试MySQL精确查询；force_rag 时跳过（避免同一查询检索两次）
+        if force_rag:
+            answer, need_rag = None, True
+        else:
+            answer, need_rag = self.bm25_search.search(query, threshold=6.0)
 
-        if answer:
+        if answer and not force_rag:
             # MySQL找到精确答案，直接返回
             self.logger.info(f"MySQL答案: {answer}")
             if session_id:
