@@ -108,15 +108,6 @@ async def clear_history(session_id: str):
 
 # 检查是否为日常问候用语并返回模板回复
 def check_greeting(query: str) -> Optional[str]:
-    query_text = query[1:].strip()  # 去除 # 前缀
-    for pattern_info in GREETING_PATTERNS:
-        if re.match(pattern_info["pattern"], query_text, re.IGNORECASE):
-            return pattern_info["response"]
-    return None
-
-
-# 检查是否为日常问候用语并返回模板回复
-def check_greeting(query: str) -> Optional[str]:
     query_text = query.strip()
     for pattern_info in GREETING_PATTERNS:
         if re.match(pattern_info["pattern"], query_text, re.IGNORECASE):
@@ -268,4 +259,9 @@ async def get_sources():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app:app", host="0.0.0.0", port=8003, reload=False)
+    # 注意：必须传 app 对象而非字符串 "app:app"。
+    # 若传 "app:app"，uvicorn 会按模块名重新 import 本文件，
+    # 导致模块级 `qa_system = IntegratedQASystem()` 执行两遍、
+    # bge-m3/reranker/BERT 三个大模型被加载两次，内存翻倍，
+    # 在 Windows 上会触发 OSError 1455（页面文件太小）。
+    uvicorn.run(app, host="0.0.0.0", port=8003, reload=False)

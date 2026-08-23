@@ -21,8 +21,9 @@ from base import Config, logger
 
 conf = Config()
 
-# 模型路径指向原项目（新项目 rag_qa/models 为空，模型在原项目）
-MODEL_DIR = r"E:\陈杰\Itcast_qa_system\rag_qa\models"
+# 模型根目录：统一从 Config（config.ini 的 [model].models_dir）读取，
+# 避免硬编码绝对路径。模型已训练/下载于该目录下。
+MODEL_DIR = conf.models_dir
 
 
 class VectorStore:

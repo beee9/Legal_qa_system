@@ -95,9 +95,14 @@ class Config:
         self.LOG_FILE = self.config.get('logger', 'log_file', fallback='logs/app.log')
 
         # model path（相对项目根拼装，避免硬编码绝对路径）
-        self.bge_m3 = os.path.join(self._PROJECT_ROOT, "rag_qa", "models", "bge-m3")
-        self.bge_reranker = os.path.join(self._PROJECT_ROOT, "rag_qa", "models", "bge-reranker-v2-m3")
-        self.nlp_bert_doc_seg = os.path.join(self._PROJECT_ROOT, "rag_qa", "models",
+        # 本地模型根目录：优先读 config.ini 的 [model].models_dir，
+        # 缺省指向本项目 rag_qa/models；本项目该目录为空时，请在 config.ini 里指向真实模型位置。
+        self.models_dir = self.config.get(
+            'model', 'models_dir',
+            fallback=os.path.join(self._PROJECT_ROOT, "rag_qa", "models"))
+        self.bge_m3 = os.path.join(self.models_dir, "bge-m3")
+        self.bge_reranker = os.path.join(self.models_dir, "bge-reranker-v2-m3")
+        self.nlp_bert_doc_seg = os.path.join(self.models_dir,
                                              "nlp_bert_document-segmentation_chinese-base")
         self.bert_intent_cls = os.path.join(self._PROJECT_ROOT, "rag_qa", "core", "bert_query_classifier", "best_model")
 
