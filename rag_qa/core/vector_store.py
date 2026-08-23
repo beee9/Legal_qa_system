@@ -54,9 +54,15 @@ class VectorStore:
         self._load_collection()
 
     def _embed(self, texts):
-        """生成 dense 向量 (n, 1024)"""
+        """生成 dense 向量 (n, 1024)。
+
+        use_fp16=True 时模型在 CUDA 上产出 fp16 向量，但 Milvus 集合
+        dense_vector 字段是 VECTOR_FLOAT(fp32)，检索会报
+        'vector type must be the same' 的类型不匹配错误。这里统一转成
+        float32，保证查询向量与索引字段类型一致。
+        """
         out = self.embedding_model.encode(list(texts), return_dense=True, return_sparse=False)
-        return out["dense_vecs"]
+        return out["dense_vecs"].astype("float32")
 
     def _load_collection(self):
         # legal_rag 集合已由入库脚本创建（dense-only），直接加载
