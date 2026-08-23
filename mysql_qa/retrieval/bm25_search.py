@@ -60,6 +60,39 @@ class BM25Search:
         # 返回归一化分数, BM25分数 映射到0-1
         return exp_scores / exp_scores.sum()
 
+    # 高频弱信号词：出现频率高、但几乎不提供"语义相关性"信息的词。
+    # BM25 常因这些词被拉高分而导致"分数高≠答对"，命中后需剔除它们再判相关性。
+    _WEAK_WORDS = set("公司 如何 怎么办 怎么 什么 请问 法律 问题 情况 相关 时候 可以 需要 "
+                      "是否 还是 应该 哪些 关于 方面 规定 如下 包括 以及 或者 是的 的话 "
+                      "一下 之后 现在 已经 进行 处理 解决 方式 办法 意思".split())
+
+    @staticmethod
+    def _is_relevant_match(query, hit_question):
+        """命中后的语义相关校验。
+        原理：BM25 高分可能是靠通用词碰上的（如"公司""如何"），
+        这里用 jieba 分词提取查询与命中条目中的"业务实体词"（2字以上、非弱信号词），
+        用子串匹配判断二者是否真的同主题。
+        返回 True=相关（可返回答案），False=疑似误命中（应降级走 RAG）。
+        """
+        from mysql_qa.utils.preprocess import preprocess_text
+        q_ents = [t for t in preprocess_text(query)
+                  if len(t) >= 2 and t not in BM25Search._WEAK_WORDS]
+        h_ents = [t for t in preprocess_text(hit_question)
+                  if len(t) >= 2 and t not in BM25Search._WEAK_WORDS]
+        if not q_ents or not h_ents:
+            # 无法提取有效实体词时，保守起见判为相关（避免误杀精确命中）
+            return True
+
+        # 子串匹配：任一查询实体词被命中实体词包含（或反之），算一次匹配
+        match_count = 0
+        for qe in q_ents:
+            for he in h_ents:
+                if qe in he or he in qe:
+                    match_count += 1
+                    break
+        # 至少有一个实质业务词能对上，才认为语义相关
+        return match_count > 0
+
     def search(self, query, threshold=6.0):
         # 搜索查询（法律场景：2632个问题的 softmax 分数会被稀释，改用原始 BM25 分数判断）
         # 精确/概念命中原始分通常 >=12，无关查询 <=4，取 6.0 为阈值
@@ -87,6 +120,12 @@ class BM25Search:
             if best_score >= threshold:
                 # 获取原始问题
                 original_question = self.original_questions[best_idx]
+                # 命中后追加语义相关校验：BM25 高分可能靠通用词碰上（答非所问），
+                # 若查询与命中条目没有实质业务词匹配，则判为误命中，降级走 RAG。
+                if not self._is_relevant_match(query, original_question):
+                    self.logger.warning(
+                        f"BM25 高分但语义不相关，降级 RAG。分={best_score:.3f} 命中=[{original_question}]")
+                    return None, True
                 # 获取答案
                 answer = self.mysql_client.fetch_answer(original_question)
                 if answer:
