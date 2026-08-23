@@ -83,7 +83,7 @@ class IntegratedQASystem:
             yield f"错误：LLM调用失败 - {e}"
 
     def _fetch_recent_history(self, session_id: str) -> list:
-        """获取最近5轮对话历史"""
+        """获取最近 N 轮对话历史（N = config.HISTORY_LIMIT）"""
         try:
             self.mysql_client.cursor.execute("""
                 SELECT question, answer
@@ -91,7 +91,7 @@ class IntegratedQASystem:
                 WHERE session_id = %s
                 ORDER BY timestamp DESC
                 LIMIT %s
-            """, (session_id, 5))
+            """, (session_id, self.config.HISTORY_LIMIT))
             history = [{"question": row[0], "answer": row[1]} for row in self.mysql_client.cursor.fetchall()]
             return history[::-1]
         except pymysql.MySQLError as e:
@@ -99,7 +99,7 @@ class IntegratedQASystem:
             return []
 
     def update_session_history(self, session_id: str, question: str, answer: str) -> list:
-        """更新会话历史到MySQL，保留最近5轮对话"""
+        """更新会话历史到MySQL，保留最近 N 轮对话"""
         try:
             self.mysql_client.cursor.execute("""
                 INSERT INTO conversations (session_id, question, answer, timestamp)
@@ -117,7 +117,7 @@ class IntegratedQASystem:
                         LIMIT %s
                     ) AS sub
                 )
-            """, (session_id, session_id, 5))
+            """, (session_id, session_id, self.config.HISTORY_LIMIT))
             self.mysql_client.connection.commit()
             self.logger.info(f"会话 {session_id} 历史更新成功")
             return history

@@ -57,6 +57,10 @@ class RAGSystem:
             subqueries_text = self.llm(subquery_prompt_template.format(query=query))
             subqueries_text = "".join(subqueries_text)
             subqueries = [q.strip() for q in subqueries_text.split("\n") if q.strip()]
+            # 限制子查询数量，控制每查询的 LLM+向量检索开销
+            if len(subqueries) > conf.MAX_SUBQUERIES:
+                logger.info(f"子查询数量 {len(subqueries)} 超过上限 {conf.MAX_SUBQUERIES}，截断")
+                subqueries = subqueries[:conf.MAX_SUBQUERIES]
             logger.info(f"生成的子查询: {subqueries}")
             if not subqueries:
                 logger.warning("未能生成有效的子查询")
@@ -133,72 +137,7 @@ class RAGSystem:
         logger.info(f"最终选取 {len(final_context_docs)} 个文档作为上下文")
         return final_context_docs
 
-    # #   定义方法，生成答案
-    # def generate_answer(self, query, source_filter=None):
-    #     #   记录查询开始时间
-    #     start_time = time.time()
-    #     logger.info(f"开始处理查询: '{query}', 学科过滤: {source_filter}")
-    #
-    #     #   判断查询类型
-    #     query_category = self.query_classifier.predict_category(query)
-    #     logger.info(f"查询分类结果：{query_category} (查询: '{query}')")
-    #
-    #     #   如果查询属于“通用知识”类别，则直接使用 LLM 回答
-    #     if query_category == "通用知识":
-    #         logger.info("查询为通用知识，直接调用 LLM")
-    #         prompt_input = self.rag_prompt.format(
-    #             context="", question=query, phone=conf.CUSTOMER_SERVICE_PHONE
-    #         )  #   不使用上下文
-    #         try:
-    #             answer = self.llm(prompt_input)
-    #         except Exception as e:
-    #             logger.error(f"直接调用 LLM 失败: {e}")
-    #             answer = f"抱歉，处理您的通用知识问题时出错。请联系人工客服：{conf.CUSTOMER_SERVICE_PHONE}"
-    #         processing_time = time.time() - start_time
-    #         logger.info(
-    #             f"通用知识查询处理完成 (耗时: {processing_time:.2f}s, 查询: '{query}')"
-    #         )
-    #         return answer
-    #
-    #     #   否则，进行 RAG 检索并生成答案
-    #     logger.info("查询为专业咨询，执行 RAG 流程")
-    #     #   选择检索策略
-    #     strategy = self.strategy_selector.select_strategy(query)
-    #
-    #     #   检索相关文档
-    #     context_docs = self.retrieve_and_merge(
-    #         query, source_filter=source_filter, strategy=strategy
-    #     )  #   传递 strategy
-    #
-    #     #   准备上下文
-    #     if context_docs:
-    #         context = "\n\n".join([doc.page_content for doc in context_docs]) # 使用换行符分隔文档
-    #         logger.info(f"构建上下文完成，包含 {len(context_docs)} 个文档块")
-    #         # logger.debug(f"上下文内容:\n{context[:500]}...") # Debug 日志可以打印部分上下文
-    #     else:
-    #         context = ""
-    #         logger.info("未检索到相关文档，上下文为空")
-    #
-    #     #   构造 Prompt，调用大语言模型生成答案
-    #     prompt_input = self.rag_prompt.format(
-    #         context=context, question=query, phone=conf.CUSTOMER_SERVICE_PHONE
-    #     )
-    #     # logger.debug(f"最终生成的 Prompt:\n{prompt_input}") # Debug 日志
-    #
-    #     try:
-    #         answer = self.llm(prompt_input)
-    #     except Exception as e:
-    #         logger.error(f"调用 LLM 生成最终答案失败: {e}")
-    #         answer = f"抱歉，处理您的专业咨询问题时出错。请联系人工客服：{conf.CUSTOMER_SERVICE_PHONE}"
-    #
-    #
-    #     #   记录查询处理完成的日志
-    #     processing_time = time.time() - start_time
-    #     logger.info(f"查询处理完成 (耗时: {processing_time:.2f}s, 查询: '{query}')")
-    #     return answer
-
     # 添加完历史消息后，定义方法，生成答案
-    # 修改 rag_system.py 中的 generate_answer 方法
     def generate_answer(self, query, source_filter=None, history=None):
         """生成答案，支持对话历史，限制提示长度，并支持流式输出"""
         start_time = time.time()
@@ -209,7 +148,7 @@ class RAGSystem:
             logger.warning(f"无效的历史格式: {type(history)}，忽略历史")
             history = []
         elif history:
-            history = history[-5:]  # 限制最多5轮
+            history = history[-conf.HISTORY_LIMIT:]  # 限制最近 N 轮
             for h in history:
                 if not (isinstance(h, dict) and "question" in h and "answer" in h):
                     logger.warning(f"无效的历史条目: {h}，忽略历史")

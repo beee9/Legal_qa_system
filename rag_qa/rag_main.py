@@ -2,7 +2,7 @@ import os
 from base import Config, logger
 from core.document_loader import process_documents  # 导入处理文档的函数
 from core.vector_store import VectorStore
-from core.rag_system import RAGSystem
+from core.new_rag_system import RAGSystem
 from openai import OpenAI  # 使用 OpenAI 接口
 
 conf = Config()
@@ -130,7 +130,8 @@ def main(query_mode=True, directory_path="data"):
 
             try:
                 print("正在生成答案，请稍候...")
-                answer = rag_system.generate_answer(query, source_filter=source_filter)
+                # new_rag_system 的 generate_answer 是流式生成器，join 得到完整答案
+                answer = "".join(rag_system.generate_answer(query, source_filter=source_filter))
                 print("-" * 30)
                 print(f"问题: {query}")
                 print(f"回答: {answer}")

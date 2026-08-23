@@ -86,6 +86,8 @@ class Config:
         self.RETRIEVAL_K = self.config.getint('retrieval', 'retrieval_k', fallback=5)
         # 最终候选数量
         self.CANDIDATE_M = self.config.getint('retrieval', 'candidate_m', fallback=2)
+        # 子查询检索最多拆分的子问题数量（控制每查询的 LLM+向量检索开销）
+        self.MAX_SUBQUERIES = self.config.getint('retrieval', 'max_subqueries', fallback=3)
 
         # 应用配置
         # 有效来源列表（用 ast.literal_eval 安全解析字面量，禁用任意表达式执行）
@@ -93,6 +95,8 @@ class Config:
             self.config.get('app', 'valid_sources', fallback='["ai", "java", "test", "ops", "bigdata"]'))
         # 客服电话
         self.CUSTOMER_SERVICE_PHONE = self.config.get('app', 'customer_service_phone', fallback='12345678')
+        # 会话历史保留轮数（喂给 LLM 的最近 N 轮）
+        self.HISTORY_LIMIT = self.config.getint('app', 'history_limit', fallback=5)
         # 日志文件路径
         self.LOG_FILE = self.config.get('logger', 'log_file', fallback='logs/app.log')
 

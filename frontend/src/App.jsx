@@ -12,7 +12,6 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const wsRef = useRef(null)
   const bottomRef = useRef(null)
-  const messagesEndRef = useRef(null)
 
   // 创建会话
   const createSession = useCallback(async () => {

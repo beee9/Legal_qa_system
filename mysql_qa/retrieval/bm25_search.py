@@ -1,7 +1,5 @@
 # 导入 BM25 算法
 from rank_bm25 import BM25Okapi
-# 导入数值计算库
-import numpy as np
 # 导入文本预处理
 from mysql_qa.utils.preprocess import preprocess_text
 # 导入日志
@@ -53,12 +51,6 @@ class BM25Search:
         self.bm25 = BM25Okapi(self.questions)
         # 记录 BM25 初始化成功
         self.logger.info("BM25 模型初始化完成")
-
-    def _softmax(self, scores):
-        # 计算 Softmax 分数
-        exp_scores = np.exp(scores - np.max(scores))  # 保证数值稳定性：减去每行的最大值
-        # 返回归一化分数, BM25分数 映射到0-1
-        return exp_scores / exp_scores.sum()
 
     # 高频弱信号词：出现频率高、但几乎不提供"语义相关性"信息的词。
     # BM25 常因这些词被拉高分而导致"分数高≠答对"，命中后需剔除它们再判相关性。
