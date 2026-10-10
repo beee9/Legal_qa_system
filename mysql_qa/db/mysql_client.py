@@ -41,12 +41,20 @@ class MySQLClient:
         conn = getattr(self._local, "connection", None)
         if conn is None or not conn.open:
             cfg = Config()
+            # 调试输出
+            print(f"DEBUG - MySQL 连接参数:")
+            print(f"  host: {cfg.MYSQL_HOST}")
+            print(f"  port: {cfg.MYSQL_PORT}")
+            print(f"  user: {cfg.MYSQL_USER}")
+            print(f"  password: '{cfg.MYSQL_PASSWORD}' (长度: {len(cfg.MYSQL_PASSWORD)})")
+            print(f"  database: {cfg.MYSQL_DATABASE}")
+
             conn = pymysql.connect(
                 host=cfg.MYSQL_HOST,
                 user=cfg.MYSQL_USER,
                 password=cfg.MYSQL_PASSWORD,
                 database=cfg.MYSQL_DATABASE,
-                # port=3307
+                port=cfg.MYSQL_PORT,
             )
             self._local.connection = conn
             self._local.cursor = conn.cursor()

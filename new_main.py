@@ -12,6 +12,16 @@ import time
 import uuid
 # 导入pymysql错误处理
 import pymysql
+# 导入 os 用于路径处理
+import os
+
+# 导入法律意图分类器
+try:
+    from rag_qa.core.legal_query_classifier import LegalQueryClassifier
+    CLASSIFIER_AVAILABLE = True
+except ImportError:
+    CLASSIFIER_AVAILABLE = False
+    logger.warning("法律意图分类器未安装，将使用传统模式")
 
 
 class IntegratedQASystem:
@@ -33,12 +43,38 @@ class IntegratedQASystem:
         except Exception as e:
             self.logger.error(f"OpenAI客户端初始化失败: {e}")
             raise
-        # 初始化向量存储
-        self.vector_store = VectorStore()
-        # 初始化RAG系统
-        self.rag_system = RAGSystem(self.vector_store, self.call_dashscope)
+        # 初始化向量存储（可选，如果 Milvus 不可用则跳过）
+        try:
+            self.vector_store = VectorStore()
+            self.rag_system = RAGSystem(self.vector_store, self.call_dashscope)
+            self.rag_available = True
+            self.logger.info("RAG 向量检索系统已启动")
+        except Exception as e:
+            self.logger.warning(f"RAG 向量检索系统初始化失败（Milvus 不可用）: {e}")
+            self.logger.warning("将使用 BM25 精确检索模式")
+            self.vector_store = None
+            self.rag_system = None
+            self.rag_available = False
         # 初始化对话历史表
         self.init_conversation_table()
+
+        # 初始化法律意图分类器（可选）
+        if CLASSIFIER_AVAILABLE:
+            try:
+                classifier_path = os.path.join(
+                    os.path.dirname(__file__),
+                    "rag_qa", "core", "legal_intent_classifier", "final_model"
+                )
+                self.query_classifier = LegalQueryClassifier(model_path=classifier_path)
+                self.classifier_enabled = True
+                self.logger.info("✓ 法律意图分类器已启动（三分类：法条查询/法律咨询/通用问题）")
+            except Exception as e:
+                self.logger.warning(f"法律意图分类器加载失败: {e}")
+                self.query_classifier = None
+                self.classifier_enabled = False
+        else:
+            self.query_classifier = None
+            self.classifier_enabled = False
 
     def init_conversation_table(self):
         """初始化MySQL中的conversations表，用于存储对话历史"""
@@ -151,7 +187,7 @@ class IntegratedQASystem:
 
     # 修改 main.py 中的 query 方法
     def query(self, query, source_filter=None, session_id=None, force_rag=False):
-        """查询集成系统，支持对话历史和流式输出。
+        """查询集成系统，支持意图分类、对话历史和流式输出。
 
         force_rag: 调用方已知该查询需要走 RAG（例如 WebSocket 流式请求前
         已在 /api/query 中做过 BM25 判断），跳过重复的 BM25 精确检索。
@@ -160,6 +196,53 @@ class IntegratedQASystem:
         self.logger.info(f"处理查询: '{query}' (会话ID: {session_id})")
         history = self.get_session_history(session_id) if session_id else []
 
+        # ========== 意图分类逻辑（新增） ==========
+        if self.classifier_enabled and self.query_classifier and not force_rag:
+            intent = self.query_classifier.predict_category(query)
+            self.logger.info(f"✓ 意图分类: {intent}")
+
+            # 1. 通用问题 - 直连 LLM（不检索法律库）
+            if intent == "通用问题":
+                self.logger.info("→ 路由：直连 LLM（通用问题）")
+                prompt = f"你是一个有用的助手。请回答以下问题：\n\n{query}"
+                collected_answer = ""
+
+                for token in self.call_dashscope(prompt):
+                    collected_answer += token
+                    yield token, False
+
+                # 更新历史
+                if session_id:
+                    self.update_session_history(session_id, query, collected_answer)
+
+                processing_time = time.time() - start_time
+                self.logger.info(f"通用问题处理完成，耗时 {processing_time:.2f}秒")
+                yield "", True
+                return
+
+            # 2. 法条查询 - 优先 BM25 精确检索（降低阈值）
+            elif intent == "法条查询":
+                self.logger.info("→ 路由：BM25 精确检索（法条查询）")
+                answer, need_rag = self.bm25_search.search(query, threshold=3.0)
+
+                if answer and not need_rag:
+                    self.logger.info(f"BM25 命中法条")
+                    if session_id:
+                        self.update_session_history(session_id, query, answer)
+                    processing_time = time.time() - start_time
+                    self.logger.info(f"查询处理耗时 {processing_time:.2f}秒")
+                    yield answer, True
+                    return
+                else:
+                    self.logger.info("BM25 未命中，回退到 RAG")
+                    force_rag = True
+
+            # 3. 法律咨询 - 直接走 RAG 语义检索
+            else:  # intent == "法律咨询"
+                self.logger.info("→ 路由：RAG 语义检索（法律咨询）")
+                force_rag = True
+
+        # ========== 原有的 BM25 / RAG 逻辑 ==========
         # 默认先尝试MySQL精确查询；force_rag 时跳过（避免同一查询检索两次）
         if force_rag:
             answer, need_rag = None, True
@@ -175,7 +258,7 @@ class IntegratedQASystem:
             self.logger.info(f"查询处理耗时 {processing_time:.2f}秒")
             # 对于MySQL答案，一次性返回
             yield answer, True  # 第二个参数表示这是完整答案
-        elif need_rag:
+        elif need_rag and self.rag_available:
             # 需要使用RAG系统，支持流式输出
             self.logger.info("无可靠MySQL答案，回退到RAG")
 
@@ -195,6 +278,15 @@ class IntegratedQASystem:
             self.logger.info(f"查询处理耗时 {processing_time:.2f}秒")
             # 标记结束
             yield "", True  # 空字符串表示流结束，True表示完成
+        elif need_rag and not self.rag_available:
+            # RAG 系统不可用
+            self.logger.warning("RAG系统不可用，无法处理此查询")
+            answer = "抱歉，向量检索系统当前不可用。本查询需要语义理解，建议：\n1. 尝试更精确的关键词\n2. 直接查询具体法条（如：民法典第509条）\n3. 联系管理员启动 Milvus 向量数据库"
+            if session_id:
+                self.update_session_history(session_id, query, answer)
+            processing_time = time.time() - start_time
+            self.logger.info(f"查询处理耗时 {processing_time:.2f}秒")
+            yield answer, True
         else:
             # 未找到答案
             self.logger.info("未找到答案")

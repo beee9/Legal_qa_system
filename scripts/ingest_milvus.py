@@ -82,11 +82,14 @@ def main():
         schema.add_field("id", DataType.INT64, is_primary=True)
         schema.add_field("subject", DataType.VARCHAR, max_length=50)
         schema.add_field("text", DataType.VARCHAR, max_length=4000)
+        schema.add_field("parent_id", DataType.INT64)  # 添加父文档ID字段
         schema.add_field("dense_vector", DataType.FLOAT_VECTOR, dim=DENSE_DIM)
+        schema.add_field("sparse_vector", DataType.SPARSE_FLOAT_VECTOR)  # 添加稀疏向量字段
         index_params = client.prepare_index_params()
         index_params.add_index("dense_vector", index_type="IVF_FLAT", metric_type="IP", params={"nlist": 128})
+        index_params.add_index("sparse_vector", index_type="SPARSE_INVERTED_INDEX", metric_type="IP")
         client.create_collection(collection_name=COLLECTION, schema=schema, index_params=index_params)
-        log(f"集合 {COLLECTION} 已创建 (dense {DENSE_DIM} 维)")
+        log(f"集合 {COLLECTION} 已创建 (dense {DENSE_DIM} 维 + sparse + parent_id)")
 
     # 3. 逐部法律切块 + 分批 embedding 入库
     total_ins = 0
@@ -101,14 +104,18 @@ def main():
             chunk = arts[i:i + BATCH]
             texts = [f"{num} {body}" for num, body in chunk]
             try:
-                out = emb.encode(list(texts), return_dense=True, return_sparse=False)
+                # 同时生成 dense 和 sparse 向量
+                out = emb.encode(list(texts), return_dense=True, return_sparse=True)
                 dense = np.asarray(out["dense_vecs"], dtype="float32").tolist()
+                sparse = out["lexical_weights"]  # 稀疏向量
                 rows = []
                 for j, (num, body) in enumerate(chunk):
                     rows.append({
                         "subject": subject,
                         "text": f"{num} {body}",
                         "dense_vector": dense[j],
+                        "sparse_vector": sparse[j],  # 添加稀疏向量
+                        "parent_id": 0,  # 当前是父文档，parent_id 设为 0
                     })
                 client.insert(COLLECTION, data=rows)
                 n_ins += len(rows)

@@ -38,13 +38,15 @@ class Config:
         # MySQL 主机地址
         # 获取section 是mysql host变量失败返回localhost
         self.MYSQL_HOST = self.config.get('mysql', 'host', fallback='localhost')
+        # MySQL 端口
+        self.MYSQL_PORT = self.config.getint('mysql', 'port', fallback=3306)
 
         # MySQL 用户名
         self.MYSQL_USER = self.config.get('mysql', 'user', fallback='root')
         # MySQL 密码（优先环境变量，避免明文入库；无则回退 config.ini）
         self.MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD") or self.config.get('mysql', 'password', fallback='')
         # MySQL 数据库名
-        self.MYSQL_DATABASE = self.config.get('mysql', 'database', fallback='subjects_kg')
+        self.MYSQL_DATABASE = self.config.get('mysql', 'database', fallback='legal_qa')
 
         # Redis 配置
         # Redis 主机地址
@@ -67,8 +69,8 @@ class Config:
         self.MILVUS_COLLECTION_NAME = self.config.get('milvus', 'collection_name', fallback='edurag_final')
 
         # LLM 配置
-        # LLM 模型名
-        self.LLM_MODEL = self.config.get('llm', 'model', fallback='qwen-plus')
+        # LLM 模型名（使用 DeepSeek-V4-Flash 免费模型）
+        self.LLM_MODEL = self.config.get('llm', 'model', fallback='deepseek-v4-flash-0731')
         # DashScope API 密钥（优先 .env 环境变量）
         self.DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY") or self.config.get('llm', 'dashscope_api_key', fallback=None)
         # DashScope API 地址（优先 .env 环境变量）

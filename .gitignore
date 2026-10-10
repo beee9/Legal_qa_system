@@ -26,6 +26,14 @@ rag_qa/core/bert_query_classifier/**/*.pt
 rag_qa/core/bert_query_classifier/**/*.pth
 *.pt
 *.pth
+*.bin
+*.safetensors
+*.onnx
+*.ckpt
+
+# Local model checkpoints
+rag_qa/core/legal_intent_classifier/checkpoints/
+rag_qa/core/legal_intent_classifier/final_model/
 
 # 数据文件（业务数据不入库）
 *.csv

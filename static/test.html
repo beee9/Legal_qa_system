@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>API 测试</title>
+</head>
+<body>
+    <h1>Legal QA System - API 测试</h1>
+    <textarea id="query" rows="5" cols="80">我婚前全款买了房，房产证只写我的名字，婚后加了丈夫的名字。现在离婚这套房算夫妻共同财产吗？怎么分？</textarea>
+    <br>
+    <button onclick="testQuery()">测试 POST /api/query</button>
+    <button onclick="testWebSocket()">测试 WebSocket</button>
+    <pre id="result"></pre>
+
+    <script>
+        function testQuery() {
+            const query = document.getElementById('query').value;
+            const result = document.getElementById('result');
+            result.textContent = '发送中...';
+            
+            fetch('/api/query', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({query: query, session_id: 'test123'})
+            })
+            .then(r => r.json())
+            .then(data => {
+                result.textContent = JSON.stringify(data, null, 2);
+            })
+            .catch(err => {
+                result.textContent = '错误: ' + err;
+            });
+        }
+
+        function testWebSocket() {
+            const query = document.getElementById('query').value;
+            const result = document.getElementById('result');
+            result.textContent = '连接 WebSocket...\n';
+            
+            const ws = new WebSocket(`ws://${location.host}/api/stream`);
+            
+            ws.onopen = () => {
+                result.textContent += '✅ WebSocket 已连接\n发送查询...\n';
+                ws.send(JSON.stringify({query: query, session_id: 'test123'}));
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                result.textContent += `收到: ${data.type}\n`;
+                if (data.type === 'token') {
+                    result.textContent += data.token;
+                }
+            };
+            
+            ws.onerror = (err) => {
+                result.textContent += '❌ WebSocket 错误: ' + err + '\n';
+            };
+        }
+    </script>
+</body>
+</html>

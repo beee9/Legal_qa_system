@@ -1,172 +1,417 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+// 优化的前端主组件
+// 主要改进：
+// 1. 统一使用 WebSocket，简化 API 调用逻辑
+// 2. 改进错误处理和加载状态
+// 3. 优化消息显示和用户体验
 
-// 会话消息结构
-// { role: 'user' | 'assistant', content: string }
+import { useState, useEffect, useRef } from 'react'
+import './App.css'
 
-const API_BASE = '' // 开发环境经 vite 代理到后端
-
-export default function App() {
+function App() {
+  // 状态管理
   const [messages, setMessages] = useState([])
-  const [input, setInput] = useState('')
+  const [inputValue, setInputValue] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
   const [sessionId, setSessionId] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [sourceFilter, setSourceFilter] = useState('')
+  const [availableSources, setAvailableSources] = useState([])
+  const [error, setError] = useState(null)
+  const [wsStatus, setWsStatus] = useState('disconnected') // disconnected, connecting, connected
+  
+  // WebSocket 引用
   const wsRef = useRef(null)
-  const bottomRef = useRef(null)
-
-  // 创建会话
-  const createSession = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/create_session`, { method: 'POST' })
-      const data = await res.json()
-      setSessionId(data.session_id)
-      setMessages([])
-    } catch (e) {
-      console.error('创建会话失败:', e)
-    }
-  }, [])
+  const messagesEndRef = useRef(null)
+  const reconnectTimeoutRef = useRef(null)
+  const reconnectAttemptsRef = useRef(0)
 
   // 自动滚动到底部
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    scrollToBottom()
   }, [messages])
 
-  // 组件挂载时创建会话
+  // 初始化：创建会话和获取法律来源
   useEffect(() => {
-    createSession()
-    return () => wsRef.current?.close()
-  }, [createSession])
-
-  // 通过 WebSocket 流式请求
-  const streamQuery = useCallback((query) => {
-    const ws = new WebSocket(
-      `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/api/stream`
-    )
-    wsRef.current = ws
-    setLoading(true)
-
-    // 先加一条助手占位消息，流式填充
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ query, source_filter: null, session_id: sessionId }))
-    }
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      if (data.type === 'start') {
-        // 开始
-      } else if (data.type === 'token' && data.token) {
-        // 流式追加
-        setMessages((prev) => {
-          const next = [...prev]
-          const last = next[next.length - 1]
-          if (last && last.role === 'assistant') {
-            last.content += data.token
-          }
-          return next
+    const init = async () => {
+      try {
+        // 创建会话
+        const sessionRes = await fetch('http://localhost:8003/api/create_session', {
+          method: 'POST'
         })
-      } else if (data.type === 'end') {
-        setLoading(false)
-        ws.close()
-      } else if (data.type === 'error') {
-        setMessages((prev) => {
-          const next = [...prev]
-          const last = next[next.length - 1]
-          if (last && last.role === 'assistant' && !last.content) {
-            last.content = '抱歉，回答出错了，请稍后重试。'
-          }
-          return next
-        })
-        setLoading(false)
-        ws.close()
+        const sessionData = await sessionRes.json()
+        setSessionId(sessionData.session_id)
+
+        // 获取法律来源
+        const sourcesRes = await fetch('http://localhost:8003/api/sources')
+        const sourcesData = await sourcesRes.json()
+        setAvailableSources(sourcesData.sources || [])
+      } catch (err) {
+        console.error('初始化失败:', err)
+        setError('系统初始化失败，请刷新页面重试')
       }
     }
 
-    ws.onerror = () => {
-      setMessages((prev) => {
-        const next = [...prev]
-        const last = next[next.length - 1]
-        if (last && last.role === 'assistant' && !last.content) {
-          last.content = '连接失败，请确认后端服务已启动。'
+    init()
+  }, [])
+
+  // WebSocket 连接管理
+  useEffect(() => {
+    if (!sessionId) return
+
+    const connectWebSocket = () => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        return // 已经连接
+      }
+
+      setWsStatus('connecting')
+      const ws = new WebSocket('ws://localhost:8003/ws/query')
+
+      ws.onopen = () => {
+        console.log('✓ WebSocket 连接成功')
+        setWsStatus('connected')
+        setError(null)
+        reconnectAttemptsRef.current = 0
+      }
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        handleWebSocketMessage(data)
+      }
+
+      ws.onerror = (error) => {
+        console.error('✗ WebSocket 错误:', error)
+        setError('连接失败，正在尝试重连...')
+      }
+
+      ws.onclose = (event) => {
+        console.log('WebSocket 断开:', event.code, event.reason)
+        setWsStatus('disconnected')
+        
+        // 自动重连（最多尝试 5 次）
+        if (reconnectAttemptsRef.current < 5) {
+          reconnectAttemptsRef.current++
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000)
+          console.log(`${delay}ms 后尝试重连...`)
+          
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connectWebSocket()
+          }, delay)
+        } else {
+          setError('连接已断开，请刷新页面重试')
         }
-        return next
-      })
-      setLoading(false)
+      }
+
+      wsRef.current = ws
     }
 
-    ws.onclose = () => {
-      setLoading(false)
+    connectWebSocket()
+
+    // 清理函数
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+      }
+      if (wsRef.current) {
+        wsRef.current.close()
+      }
     }
   }, [sessionId])
 
-  // 提交查询
-  const handleSend = async (e) => {
-    e.preventDefault()
-    const query = input.trim()
-    if (!query || loading) return
+  // 处理 WebSocket 消息
+  const handleWebSocketMessage = (data) => {
+    switch (data.type) {
+      case 'start':
+        // 开始处理查询
+        setIsLoading(true)
+        setError(null)
+        break
 
-    setMessages((prev) => [...prev, { role: 'user', content: query }])
-    setInput('')
+      case 'complete':
+        // 收到完整答案（BM25 或问候语）
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: data.answer,
+            timestamp: new Date().toISOString(),
+            source: data.source || 'unknown',
+            streaming: false
+          }
+        ])
+        setIsLoading(false)
+        break
 
-    // 先走 REST 判断是否需要流式
-    try {
-      const res = await fetch(`${API_BASE}/api/query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, session_id: sessionId }),
-      })
-      const data = await res.json()
-      if (data.is_streaming) {
-        streamQuery(query) // 需要 RAG/LLM，走 WebSocket 流式
-      } else {
-        setMessages((prev) => [...prev, { role: 'assistant', content: data.answer }])
-      }
-    } catch (err) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: '请求失败，请检查后端服务。' }])
+      case 'token':
+        // 收到流式内容片段（RAG）
+        setMessages(prev => {
+          const last = prev[prev.length - 1]
+          if (last && last.streaming) {
+            // 追加到最后一条流式消息
+            return [
+              ...prev.slice(0, -1),
+              { ...last, content: last.content + data.content }
+            ]
+          } else {
+            // 创建新的流式消息
+            return [
+              ...prev,
+              {
+                role: 'assistant',
+                content: data.content,
+                timestamp: new Date().toISOString(),
+                source: 'rag',
+                streaming: true
+              }
+            ]
+          }
+        })
+        break
+
+      case 'end':
+        // 查询处理结束
+        setMessages(prev => {
+          const last = prev[prev.length - 1]
+          if (last && last.streaming) {
+            return [
+              ...prev.slice(0, -1),
+              { ...last, streaming: false }
+            ]
+          }
+          return prev
+        })
+        setIsLoading(false)
+        console.log(`处理耗时: ${data.processing_time?.toFixed(2)}s`)
+        break
+
+      case 'error':
+        // 错误信息
+        setError(data.error)
+        setIsLoading(false)
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'system',
+            content: `错误: ${data.error}`,
+            timestamp: new Date().toISOString(),
+            isError: true
+          }
+        ])
+        break
     }
+  }
+
+  // 发送查询
+  const handleSend = () => {
+    if (!inputValue.trim()) return
+    
+    if (wsStatus !== 'connected') {
+      setError('连接未就绪，请稍候...')
+      return
+    }
+
+    // 添加用户消息
+    const userMessage = {
+      role: 'user',
+      content: inputValue.trim(),
+      timestamp: new Date().toISOString()
+    }
+    setMessages(prev => [...prev, userMessage])
+
+    // 通过 WebSocket 发送查询
+    try {
+      wsRef.current.send(JSON.stringify({
+        query: inputValue.trim(),
+        source_filter: sourceFilter || null,
+        session_id: sessionId
+      }))
+      setInputValue('')
+      setError(null)
+    } catch (err) {
+      console.error('发送失败:', err)
+      setError('发送失败，请重试')
+      setIsLoading(false)
+    }
+  }
+
+  // 清除历史
+  const handleClearHistory = async () => {
+    if (!sessionId) return
+
+    try {
+      await fetch(`http://localhost:8003/api/history/${sessionId}`, {
+        method: 'DELETE'
+      })
+      setMessages([])
+      setError(null)
+    } catch (err) {
+      console.error('清除历史失败:', err)
+      setError('清除历史失败')
+    }
+  }
+
+  // 按 Enter 发送
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  // 格式化时间
+  const formatTime = (timestamp) => {
+    const date = new Date(timestamp)
+    return date.toLocaleTimeString('zh-CN', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    })
   }
 
   return (
     <div className="app">
+      {/* 头部 */}
       <header className="header">
         <h1>⚖️ 法律智能问答系统</h1>
-        <button className="new-btn" onClick={createSession}>新会话</button>
+        <div className="header-info">
+          <span className={`status-indicator ${wsStatus}`}>
+            {wsStatus === 'connected' ? '● 已连接' : 
+             wsStatus === 'connecting' ? '⟳ 连接中...' : 
+             '● 未连接'}
+          </span>
+          <button 
+            onClick={handleClearHistory}
+            className="btn-clear"
+            disabled={messages.length === 0}
+          >
+            🗑️ 清除历史
+          </button>
+        </div>
       </header>
 
-      <main className="chat">
-        {messages.length === 0 ? (
-          <div className="welcome">
-            <p>您好！我是法律智能问答助手</p>
-            <p>覆盖《民法典》《劳动法》《劳动合同法》《公司法》《刑法》《民事诉讼法》</p>
-            <p className="hint">试试问：<br />「民法典第五百零九条是什么？」<br />「合同违约了一般怎么处理？」</p>
-          </div>
-        ) : (
-          <div className="messages">
-            {messages.map((m, i) => (
-              <div key={i} className={`msg ${m.role}`}>
-                <div className="bubble">{m.content}</div>
+      {/* 错误提示 */}
+      {error && (
+        <div className="error-banner">
+          <span>⚠️ {error}</span>
+          <button onClick={() => setError(null)}>✕</button>
+        </div>
+      )}
+
+      {/* 聊天区域 */}
+      <main className="chat-container">
+        <div className="messages">
+          {messages.length === 0 && (
+            <div className="welcome-message">
+              <h2>欢迎使用法律智能问答系统</h2>
+              <p>您可以询问关于民法典、劳动法、公司法等法律问题</p>
+              <div className="example-queries">
+                <p>示例问题：</p>
+                <button onClick={() => setInputValue('民法典第509条的内容是什么？')}>
+                  民法典第509条的内容是什么？
+                </button>
+                <button onClick={() => setInputValue('合同违约怎么办？')}>
+                  合同违约怎么办？
+                </button>
+                <button onClick={() => setInputValue('劳动合同期限有哪些规定？')}>
+                  劳动合同期限有哪些规定？
+                </button>
               </div>
-            ))}
-            <div ref={bottomRef} />
-          </div>
-        )}
+            </div>
+          )}
+
+          {messages.map((msg, index) => (
+            <div 
+              key={index} 
+              className={`message ${msg.role} ${msg.isError ? 'error' : ''}`}
+            >
+              <div className="message-header">
+                <span className="message-role">
+                  {msg.role === 'user' ? '👤 您' : 
+                   msg.role === 'system' ? '⚙️ 系统' : 
+                   '🤖 助手'}
+                </span>
+                <span className="message-time">{formatTime(msg.timestamp)}</span>
+                {msg.source && (
+                  <span className="message-source">
+                    {msg.source === 'bm25' ? '📚 精确匹配' :
+                     msg.source === 'rag' ? '🧠 智能推理' :
+                     msg.source === 'greeting' ? '👋 问候' : ''}
+                  </span>
+                )}
+              </div>
+              <div className="message-content">
+                {msg.content}
+                {msg.streaming && (
+                  <span className="cursor-blink">▋</span>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* 加载指示器 */}
+          {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
+            <div className="message assistant loading">
+              <div className="message-header">
+                <span className="message-role">🤖 助手</span>
+              </div>
+              <div className="message-content">
+                <div className="typing-indicator">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+                <span className="loading-text">正在思考...</span>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
       </main>
 
-      <form className="input-bar" onSubmit={handleSend}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="请输入您的法律问题…"
-          disabled={loading}
-        />
-        <button type="submit" disabled={loading || !input.trim()}>
-          {loading ? '…' : '发送'}
-        </button>
-      </form>
+      {/* 输入区域 */}
+      <footer className="input-area">
+        <div className="input-controls">
+          <select 
+            value={sourceFilter} 
+            onChange={(e) => setSourceFilter(e.target.value)}
+            className="source-select"
+          >
+            <option value="">所有法律</option>
+            {availableSources.map(source => (
+              <option key={source} value={source}>{source}</option>
+            ))}
+          </select>
+        </div>
 
-      <footer className="footer">
-        本系统提供法律信息参考，不构成法律意见；涉及具体纠纷请咨询执业律师。
+        <div className="input-wrapper">
+          <textarea
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="输入您的法律问题... (按 Enter 发送，Shift+Enter 换行)"
+            className="input-field"
+            disabled={wsStatus !== 'connected'}
+            rows="1"
+          />
+          <button 
+            onClick={handleSend}
+            disabled={!inputValue.trim() || wsStatus !== 'connected' || isLoading}
+            className="btn-send"
+          >
+            {isLoading ? '⟳' : '发送'}
+          </button>
+        </div>
+
+        <div className="footer-info">
+          <small>
+            本系统提供法律信息参考，不构成法律意见。如需专业法律建议，请咨询律师。
+          </small>
+        </div>
       </footer>
     </div>
   )
 }
+
+export default App
